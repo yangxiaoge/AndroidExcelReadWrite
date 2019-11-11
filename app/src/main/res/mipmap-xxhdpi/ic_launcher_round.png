@@ -1,0 +1,254 @@
+package com.seuic.property.assessment.util;
+
+import android.content.Context;
+import android.net.Uri;
+import android.util.Log;
+
+import com.blankj.utilcode.util.LogUtils;
+import com.blankj.utilcode.util.ToastUtils;
+import com.seuic.property.assessment.constant.Constants;
+import com.seuic.property.assessment.db.PropertyDB;
+
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.util.WorkbookUtil;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * <pre>
+ *     author: Bruce Yang
+ *     blog  : https://yangjianan.gitee.io
+ *     time  : 2019/11/7
+ *     desc  : Excel 读写工具类
+ *     link  : https://blog.csdn.net/u014743890/article/details/91045033
+ * </pre>
+ */
+public class ExcelUtil {
+    private static final String TAG = ExcelUtil.class.getSimpleName();
+
+    /**
+     * 读取excel（xls和xlsx）
+     *
+     * @return List
+     */
+    public static List<PropertyDB> readExcel(Context context, Uri uri, String filePath, String[] columns) {
+        List<PropertyDB> list = null;
+        Workbook wb;
+        if (filePath == null) {
+            return null;
+        }
+        String extString;
+        if (!filePath.endsWith(".xls") && !filePath.endsWith(".xlsx")) {
+            ToastUtils.showShort("请选择正确的Excel文件");
+            return null;
+        }
+        extString = filePath.substring(filePath.lastIndexOf("."));
+
+        InputStream is;
+        try {
+//            is = new FileInputStream(filePath);
+            is = context.getContentResolver().openInputStream(uri);
+            Log.i(TAG, "readExcel: " + extString);
+            if (".xls".equals(extString)) {
+                wb = new HSSFWorkbook(is);
+            } else if (".xlsx".equals(extString)) {
+                wb = new XSSFWorkbook(is);
+            } else {
+                wb = null;
+            }
+            if (wb != null) {
+                // 用来存放表中数据
+                list = new ArrayList<>();
+                // 获取第一个sheet
+                Sheet sheet = wb.getSheetAt(0);
+                // 获取第一行标题
+                Row rowHeader = sheet.getRow(0);
+                // 获取最大行数
+                int rownum = sheet.getPhysicalNumberOfRows();
+                for (int i = 0; i < rownum; i++) {
+                    Row row = sheet.getRow(i);
+                    // 获取最大列数
+//                    int colnum = row.getPhysicalNumberOfCells();
+                    int colnum = columns.length;
+                    PropertyDB propertyDB = new PropertyDB();
+
+                    //第一行为标题
+                    if (i == 0) {
+                        propertyDB.setTitle(true);
+                    }
+
+                    if (row != null) {
+                        for (int j = 0; j < colnum; j++) {
+                            if (columns[j].equals(getCellFormatValue(rowHeader.getCell(j)))) {
+                                Object value = getCellFormatValue(row.getCell(j));
+                                String cellInfo = "r:" + i + "; c:" + j + "; v:" + value;
+                                Log.i(TAG, "readExcel: " + cellInfo);
+                                switch (columns[j]) {
+                                    case Constants.统一编号:
+                                        propertyDB.setDeviceId((String) value);
+                                        break;
+                                    case Constants.设备名称:
+                                        propertyDB.setDeviceName((String) value);
+                                        break;
+                                    case Constants.规格:
+                                        propertyDB.setStandard((String) value);
+                                        break;
+                                    case Constants.型号:
+                                        propertyDB.setModel((String) value);
+                                        break;
+                                    case Constants.出厂编号:
+                                        propertyDB.setSerialNumber((String) value);
+                                        break;
+                                    case Constants.出厂日期:
+                                        propertyDB.setDate((String) value);
+                                        break;
+                                    case Constants.盘点状态:
+                                        propertyDB.setCountingStatus((String) value);
+                                        break;
+                                }
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                    list.add(propertyDB);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            ToastUtils.showShort("导入失败，请检查Excel文件");
+            LogUtils.file("导入失败，" + e);
+        }
+        return list;
+    }
+
+    /**
+     * 获取单个单元格数据
+     *
+     * @param cell </>
+     * @return cell
+     */
+    private static Object getCellFormatValue(Cell cell) {
+        Object cellValue;
+        if (cell != null) {
+            // 判断cell类型
+            switch (cell.getCellType()) {
+                case Cell.CELL_TYPE_BOOLEAN:
+                    cellValue = cell.getBooleanCellValue();
+                    break;
+                case Cell.CELL_TYPE_NUMERIC: {
+                    // TODO: 2019/11/7
+//                    cellValue = String.valueOf(cell.getNumericCellValue());
+                    cellValue = new BigDecimal(cell.getNumericCellValue()).toPlainString();
+                    break;
+                }
+                case Cell.CELL_TYPE_FORMULA: {
+                    // 判断cell是否为日期格式
+                    if (DateUtil.isCellDateFormatted(cell)) {
+                        // 转换为日期格式YYYY-mm-dd
+                        cellValue = cell.getDateCellValue();
+                    } else {
+                        // 数字
+                        // TODO: 2019/11/7
+//                        cellValue = String.valueOf(cell.getNumericCellValue());
+                        cellValue = new BigDecimal(cell.getNumericCellValue()).toPlainString();
+                    }
+                    break;
+                }
+                case Cell.CELL_TYPE_STRING: {
+                    cellValue = cell.getRichStringCellValue().getString();
+                    break;
+                }
+                default:
+                    cellValue = "";
+            }
+        } else {
+            cellValue = "";
+        }
+        return cellValue;
+    }
+
+    /**
+     * 写Excel(xlsx)
+     */
+    public static void writeExcel(Context context, List<PropertyDB> exportExcel, String[] colums, Uri uri) {
+        XSSFWorkbook workbook = new XSSFWorkbook();
+        XSSFSheet sheet = workbook.createSheet(WorkbookUtil.createSafeSheetName("Sheet1"));
+        try {
+            for (int i = 0; i < exportExcel.size(); i++) {
+                Row row = sheet.createRow(i);
+                PropertyDB propertyDB = exportExcel.get(i);
+                for (int i1 = 0; i1 < colums.length; i1++) {
+                    Cell cell = row.createCell(i1);
+                    switch (colums[i1]) {
+                        case Constants.统一编号:
+                            cell.setCellValue(propertyDB.getDeviceId());
+                            break;
+                        case Constants.设备名称:
+                            cell.setCellValue(propertyDB.getDeviceName());
+                            break;
+                        case Constants.规格:
+                            cell.setCellValue(propertyDB.getStandard());
+                            break;
+                        case Constants.型号:
+                            cell.setCellValue(propertyDB.getModel());
+                            break;
+                        case Constants.出厂编号:
+                            cell.setCellValue(propertyDB.getSerialNumber());
+                            break;
+                        case Constants.出厂日期:
+                            cell.setCellValue(propertyDB.getDate());
+                            break;
+                        case Constants.盘点状态:
+                            cell.setCellValue(propertyDB.getCountingStatus());
+                            break;
+                    }
+                }
+            }
+
+            OutputStream outputStream = context.getContentResolver().openOutputStream(uri);
+            workbook.write(outputStream);
+            outputStream.flush();
+            outputStream.close();
+            ToastUtils.showShort("导出成功");
+            Log.i(TAG, "writeExcel: 导出成功");
+        } catch (Exception e) {
+            e.printStackTrace();
+            ToastUtils.showShort("导出失败");
+            Log.e(TAG, "writeExcel: 导出失败");
+        }
+    }
+
+
+    //-------------------------读取动态Excel-------------------------------//
+    public static List<Map<Integer, Object>> readExcelNew(Context context, Uri uri, String filePath) {
+        List<Map<Integer, Object>> list = null;
+        Workbook wb;
+        if (filePath == null) {
+            return null;
+        }
+        String extString;
+        if (!filePath.endsWith(".xls") && !filePath.endsWith(".xlsx")) {
+            ToastUtils.showShort("请选择正确的Excel文件");
+            return null;
+        }
+        extString = filePath.substring(filePath.lastIndexOf("."));
+
+        InputStream is;
+        try {
+            is = context.getContentResolver().openInputStream(uri);
+            Log.i(TAG, "readExcel: " + extString);
+  

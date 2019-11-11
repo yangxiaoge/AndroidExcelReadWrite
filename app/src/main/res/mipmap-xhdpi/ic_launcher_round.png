@@ -1,0 +1,180 @@
+package com.seuic.property.assessment.ui;
+
+import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.blankj.utilcode.constant.PermissionConstants;
+import com.blankj.utilcode.util.ConvertUtils;
+import com.blankj.utilcode.util.PermissionUtils;
+import com.blankj.utilcode.util.ThreadUtils;
+import com.blankj.utilcode.util.TimeUtils;
+import com.blankj.utilcode.util.ToastUtils;
+import com.chad.library.adapter.base.BaseQuickAdapter;
+import com.chad.library.adapter.base.BaseViewHolder;
+import com.github.clans.fab.FloatingActionMenu;
+import com.google.android.material.tabs.TabLayout;
+import com.kongzue.dialog.v3.WaitDialog;
+import com.seuic.property.assessment.R;
+import com.seuic.property.assessment.constant.Constants;
+import com.seuic.property.assessment.db.PropertyDB;
+import com.seuic.property.assessment.util.ExcelUtil;
+
+import org.litepal.LitePal;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * <pre>
+ *     author: Bruce Yang
+ *     blog  : https://yangjianan.gitee.io
+ *     time  : 2019/11/6
+ *     desc  : 资产盘点页面
+ * </pre>
+ */
+public class CheckPropertyActivity extends AppCompatActivity {
+    private static final String TAG = CheckPropertyActivity.class.getSimpleName();
+
+    private Context mContext;
+
+    private FloatingActionMenu floatingActionMenu;
+    private RecyclerView propertyOkRV;
+    private RecyclerView propertyWaitRV;
+    private TextView msgTV;
+    //接收excel数据
+    private List<Map<Integer, Object>> readExcelList = new ArrayList<>();
+    private List<Map<Integer, Object>> dbListOK = new ArrayList<>();
+    private List<Map<Integer, Object>> dbListWait = new ArrayList<>();
+    private CheckPropertyAdapter checkPropertyOkAdapter;
+    private CheckPropertyAdapter checkPropertyWaitAdapter;
+    //标题
+    private String[] titles = new String[]{Constants.统一编号, Constants.设备名称, Constants.规格, Constants.型号,
+            Constants.出厂编号, Constants.出厂日期, Constants.盘点状态};
+    //标题数据
+    private PropertyDB title;
+
+    private int FILE_SELECTOR_CODE = 10000;
+    private int DIR_SELECTOR_CODE = 20000;
+
+    private ScanReceiver scanReceiver;
+
+    @Override
+    public boolean onSupportNavigateUp() {
+        onBackPressed();
+        return super.onSupportNavigateUp();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (floatingActionMenu.isOpened()) {
+            floatingActionMenu.close(true);
+        }
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getString(R.string.attention));
+        builder.setMessage(getString(R.string.dialog_msg));
+        builder.setPositiveButton(getString(R.string.sure), (dialog, which) -> {
+            //先清除数据库
+            LitePal.deleteAll(PropertyDB.class);
+            Log.i(TAG, "onClick: 确定");
+            finish();
+        });
+        builder.setNegativeButton(getString(R.string.cancel), (dialog, which) -> Log.i(TAG, "onClick: 取消"));
+        builder.show();
+    }
+
+    @Override
+    public void onDestroy() {
+        try {
+            if (scanReceiver != null) {
+                unregisterReceiver(scanReceiver);
+                scanReceiver = null;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        super.onDestroy();
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_check_property);
+        mContext = this;
+        initToolbar();
+        initViews();
+        initBarcodeReceiver();
+    }
+
+    private void initToolbar() {
+        Objects.requireNonNull(getSupportActionBar()).setDisplayHomeAsUpEnabled(true);
+        Objects.requireNonNull(getSupportActionBar()).setTitle(getString(R.string.check_property_title));
+    }
+
+    private void initViews() {
+        floatingActionMenu = findViewById(R.id.float_menu);
+        floatingActionMenu.setClosedOnTouchOutside(true);
+        //自动展开
+        floatingActionMenu.postDelayed(() -> {
+            if (!floatingActionMenu.isOpened()) {
+                floatingActionMenu.open(true);
+            }
+        }, 100);
+
+        initTab();
+
+        msgTV = findViewById(R.id.msg_tv);
+
+        propertyOkRV = findViewById(R.id.property_ok_rv);
+        propertyOkRV.setLayoutManager(new LinearLayoutManager(this));
+        //propertyOkRV.addItemDecoration(new DividerGridItemDecoration(this));
+        propertyOkRV.setNestedScrollingEnabled(false); // 解决 ScrollView 嵌套 RecyclerView 导致滑动不流畅的问题
+        checkPropertyOkAdapter = new CheckPropertyAdapter(dbListOK);
+        propertyOkRV.setAdapter(checkPropertyOkAdapter);
+
+        propertyWaitRV = findViewById(R.id.property_wait_rv);
+        propertyWaitRV.setLayoutManager(new LinearLayoutManager(this));
+        //propertyWaitRV.addItemDecoration(new DividerGridItemDecoration(this));
+        propertyWaitRV.setNestedScrollingEnabled(false); // 解决 ScrollView 嵌套 RecyclerView 导致滑动不流畅的问题
+        checkPropertyWaitAdapter = new CheckPropertyAdapter(dbListWait);
+        propertyWaitRV.setAdapter(checkPropertyWaitAdapter);
+    }
+
+    private void initTab() {
+        TabLayout tab = findViewById(R.id.tab);
+        String[] mTitles = {Constants.已盘点, Constants.未盘点};
+        for (String mTitle : mTitles) {
+            tab.addTab(tab.newTab().setText(mTitle));
+        }
+        tab.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                CharSequence tabText = tab.getText();
+                Log.i(TAG, "onTabSelected: " + tabText);
+                if (tabText != null) {
+                    if (tabText.equals(Constants.已盘点)) {
+                        propertyOkRV.setVisibility(View.VISIBLE);
+                        propertyWaitRV.setVisibility(View.GONE);
+                    } else if (tabText.equals(Constants.未盘点)) {
+                        propertyOkRV.setVisibility(View.GONE);
+ 

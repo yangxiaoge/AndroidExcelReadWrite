@@ -1,0 +1,83 @@
+package com.seuic.property.assessment.ui;
+
+import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Handler;
+import android.util.Log;
+import android.view.View;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.blankj.utilcode.constant.PermissionConstants;
+import com.blankj.utilcode.util.ConvertUtils;
+import com.blankj.utilcode.util.PermissionUtils;
+import com.blankj.utilcode.util.ThreadUtils;
+import com.blankj.utilcode.util.TimeUtils;
+import com.blankj.utilcode.util.ToastUtils;
+import com.chad.library.adapter.base.BaseQuickAdapter;
+import com.chad.library.adapter.base.BaseViewHolder;
+import com.github.clans.fab.FloatingActionMenu;
+import com.google.android.material.tabs.TabLayout;
+import com.kongzue.dialog.v3.WaitDialog;
+import com.seuic.property.assessment.R;
+import com.seuic.property.assessment.constant.Constants;
+import com.seuic.property.assessment.db.PropertyDB;
+import com.seuic.property.assessment.util.ExcelUtil;
+
+import org.litepal.LitePal;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * <pre>
+ *     author: Bruce Yang
+ *     blog  : https://yangjianan.gitee.io
+ *     time  : 2019/11/6
+ *     desc  : 资产盘点页面
+ * </pre>
+ */
+public class CheckPropertyActivity extends AppCompatActivity {
+    private static final String TAG = CheckPropertyActivity.class.getSimpleName();
+
+    private Context mContext;
+
+    private FloatingActionMenu floatingActionMenu;
+    private RecyclerView propertyOkRV;
+    private RecyclerView propertyWaitRV;
+    private TextView msgTV;
+    //接收excel数据
+    private List<Map<Integer, Object>> readExcelList = new ArrayList<>();
+    private List<Map<Integer, Object>> dbListOK = new ArrayList<>();
+    private List<Map<Integer, Object>> dbListWait = new ArrayList<>();
+    private CheckPropertyAdapter checkPropertyOkAdapter;
+    private CheckPropertyAdapter checkPropertyWaitAdapter;
+    //标题
+    private String[] titles = new String[]{Constants.统一编号, Constants.设备名称, Constants.规格, Constants.型号,
+            Constants.出厂编号, Constants.出厂日期, Constants.盘点状态};
+    //标题数据
+    private PropertyDB title;
+
+    private int FILE_SELECTOR_CODE = 10000;
+    private int DIR_SELECTOR_CODE = 20000;
+
+    private ScanReceiver scanReceiver;
+
+    @Override
+    public boolean onSupportNavigateUp() {
+        onBackPressed();
+  
